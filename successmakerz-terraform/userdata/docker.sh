@@ -1,55 +1,51 @@
 #!/bin/bash
+set -e
+exec > /var/log/userdata.log 2>&1
 
 apt update -y
 apt upgrade -y
+apt install -y git curl wget unzip nginx certbot python3-certbot-nginx
 
-apt install -y \
-git \
-curl \
-wget \
-unzip \
-nginx \
-certbot \
-python3-certbot-nginx
+# Install Node.js 20
+curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+apt install -y nodejs
 
+# Install Docker
 curl -fsSL https://get.docker.com | sh
-
 systemctl enable docker
 systemctl start docker
-
 usermod -aG docker ubuntu
 
 mkdir -p /opt/apps
-
 cd /opt/apps
 
-git clone https://github.com/nitishjaswal4516-cmd/successmakerz-frontend.git frontend
+git clone ${frontend_repo} frontend
+git clone ${backend_repo} backend
 
-git clone https://github.com/nitishjaswal4516-cmd/successmakerz-backend.git backend
-
-# Frontend Deploy
+# ── Frontend Build ──────────────────────────────────────
 cd /opt/apps/frontend
-docker compose up -d --build
+echo "VITE_API_URL=https://go.nitish-devops.me" > .env
+chown -R ubuntu:ubuntu /opt/apps/frontend
+npm install
+chmod +x node_modules/.bin/tsc
+chmod +x node_modules/.bin/vite
+npm run build
 
-# Backend Deploy
+# ── Backend Deploy ──────────────────────────────────────
 cd /opt/apps/backend
 docker compose up -d --build
 
-# NGINX CONFIG
-
-cat > /etc/nginx/sites-available/default << 'EOF'
+# ── NGINX CONFIG ────────────────────────────────────────
+cat > /etc/nginx/sites-available/default << 'NGINXEOF'
 server {
     listen 80;
     server_name tour.nitish-devops.me;
 
-    location / {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
+    root /opt/apps/frontend/dist;
+    index index.html;
 
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+    location / {
+        try_files $uri $uri/ /index.html;
     }
 }
 
@@ -60,29 +56,26 @@ server {
     location / {
         proxy_pass http://localhost:5000;
         proxy_http_version 1.1;
-
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
-EOF
+NGINXEOF
 
 nginx -t
 systemctl enable nginx
 systemctl restart nginx
 
-# CERTBOT SSL
-
+# ── CERTBOT SSL ─────────────────────────────────────────
 certbot --nginx \
--d tour.nitish-devops.me \
--d go.nitish-devops.me \
---non-interactive \
---agree-tos \
--m jaswalkaku980@gmail.com
+  -d tour.nitish-devops.me \
+  -d go.nitish-devops.me \
+  --non-interactive \
+  --agree-tos \
+  -m jaswalkaku980@gmail.com
 
-# VERIFY SERVICES
-
+# ── VERIFY ──────────────────────────────────────────────
 systemctl status nginx --no-pager
-docker ps // change
+docker ps
